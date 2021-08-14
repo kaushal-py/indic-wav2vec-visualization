@@ -1,1 +1,1 @@
-# indic-wav2vec-visualization
+# Indic Wav2vec Visualization
