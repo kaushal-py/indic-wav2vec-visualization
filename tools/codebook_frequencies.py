@@ -2,11 +2,9 @@
 Example usage:
 # python tools/codebook_frequencies.py data/samples_1h data/models/CLSRIL-23.pt data/outputs
 '''
-import sys
 import os
 from collections import Counter
 from pathlib import Path
-from matplotlib import use
 
 import numpy as np
 import pandas as pd
@@ -16,10 +14,12 @@ import soundfile as sf
 from loguru import logger
 import argparse
 from tqdm import tqdm
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from sklearn.cluster import SpectralClustering
 from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
+from sklearn.manifold import TSNE, SpectralEmbedding
+from indictrans import Transliterator
 
 import inference
 
@@ -87,15 +87,26 @@ class CodebookFrequenciesVisualizer:
         df.to_csv(output_destination, index=False, header=False)
         logger.info('Saved output in {}'.format(output_destination))
     
-    def _plot_affinity_matrix(self, affinity_matrix: np.ndarray, labels: list,
-                                output_destination: str):
+    def _plot_affinity_matrix(self, affinity_matrix: np.ndarray,
+                                output_destination: str,
+                                labels_x: list = None, labels_y: list = None,
+                                title_x = None, title_y = None):
+
+        # hindi_font = FontProperties(fname = 'KRDEV011.ttf')
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111)
         ax.matshow(affinity_matrix, interpolation='nearest', cmap='Blues')
-        ax.set_xticklabels(['']+labels, rotation=90)
-        ax.set_yticklabels(['']+labels)
-        ax.set_xticks(np.arange(-1, len(labels)))
-        ax.set_yticks(np.arange(-1, len(labels)))
+
+        if title_x is not None:
+            ax.set_xlabel(title_x)
+        if title_y is not None:
+            ax.set_ylabel(title_y)
+        if labels_x is not None:
+            ax.set_xticklabels(['']+labels_x, rotation=90)
+            ax.set_xticks(np.arange(-1, len(labels_x)))
+        if labels_y is not None:
+            ax.set_yticklabels(['']+labels_y)
+            ax.set_yticks(np.arange(-1, len(labels_y)))
         plt.show()
         plt.savefig(output_destination)
 
@@ -117,10 +128,16 @@ class CodebookFrequenciesVisualizer:
                 assert dist >= 0 and dist <= 1, dist
                 affinity_matrix[i][j] = (1-dist)
                 distance_matrix[i][j] = dist
-        output_destination = os.path.join(output_folder, "affinity_matrix.png")
+        # print(affinity_matrix)
+        min_val = affinity_matrix.min()
+        max_val = affinity_matrix.max()
+        np.fill_diagonal(affinity_matrix, min_val)
+        # affinity_matrix = (affinity_matrix - min_val)/(max_val - min_val)
+        # print(affinity_matrix)
+        output_destination = os.path.join(output_folder, "affinity_matrix_nodiag.png")
         if plot:
-            self._plot_affinity_matrix(affinity_matrix, list(language_dist.keys()),
-                                        output_destination)
+            self._plot_affinity_matrix(affinity_matrix, output_destination,
+                    list(language_dist.keys()), list(language_dist.keys()))
             logger.info('Saved output in {}'.format(output_destination))
         return affinity_matrix, distance_matrix
     
@@ -128,31 +145,100 @@ class CodebookFrequenciesVisualizer:
                                 output_folder: str, num_clusters=5,
                                 dim_reduce='TSNE'):
         logger.info("Performing spectral clustering with {} clusters..".format(num_clusters))
-        # Pefrom clustring
-        clustering = SpectralClustering(n_clusters=num_clusters,
-            affinity='precomputed',
-            assign_labels='discretize',
-            random_state=0)
-        labels = clustering.fit_predict(affinity_matrix)
+
         datapoints = np.array(list(language_dist.values()))
         language_names = list(language_dist.keys())
         # Dimensionality reduction
         logger.info("Performing dimensionality reduction using {}..".format(dim_reduce))
-        dimension_reducer = getattr(
-            sys.modules[__name__], dim_reduce)(n_components=2, verbose=1)
-        pca_points = dimension_reducer.fit_transform(datapoints)
+        dimension_reducer = TSNE(n_components=2, perplexity=1,
+                                learning_rate=10, verbose=1, metric='precomputed',
+                                random_state=42)
+        # dimension_reducer = SpectralEmbedding(
+        #                 n_components=2, affinity='precomputed', n_neighbors=10)
+        # dimension_reducer = PCA(n_components=2)
+        pca_points = dimension_reducer.fit_transform((1-affinity_matrix))
+        # pca_points = dimension_reducer.fit_transform(affinity_matrix)
+        # pca_points = dimension_reducer.fit_transform((datapoints))
         print(pca_points.shape)
-        output_destination = os.path.join(output_folder, "{}_clusters_{}.png".format(num_clusters, dim_reduce))
-        # Plotting
-        fig, ax = plt.subplots()
-        fig.figsize = (20, 20)
-        ax.scatter(pca_points[:,0], pca_points[:,1], c=labels)
-        for i, txt in enumerate(language_names):
-            ax.annotate(txt, (pca_points[i,0], pca_points[i,1]))
-        fig.tight_layout()
-        plt.show()
-        plt.savefig(output_destination,  dpi=300, bbox_inches='tight')
-        logger.info('Saved output in {}'.format(output_destination))
+
+        for num_clusters in [5]:
+            # Pefrom clustring
+            clustering = SpectralClustering(n_clusters=num_clusters,
+                affinity='precomputed',
+                assign_labels='discretize',
+                random_state=42)
+            labels = clustering.fit_predict(affinity_matrix)
+            
+            # Plotting
+            output_destination = os.path.join(output_folder, "{}_clusters_{}.png".format(num_clusters, dim_reduce))
+            fig, ax = plt.subplots()
+            fig.figsize = (20, 20)
+            ax.scatter(pca_points[:,0], pca_points[:,1], c=labels)
+            for i, txt in enumerate(language_names):
+                ax.annotate(txt, (pca_points[i,0], pca_points[i,1]))
+            fig.tight_layout()
+            plt.show()
+            plt.savefig(output_destination,  dpi=300, bbox_inches='tight')
+            logger.info('Saved output in {}'.format(output_destination))
+    
+    def _load_phoneme_prob_matrix(self, language):
+        model_path = "data/phoneme_model/CLSRIL_{}_10h.npy".format(language)
+        model = np.load(model_path)
+        sums = model.sum(axis=1)
+        sums[sums == 0] = 1
+        model = (model.T/sums).T
+        return model
+    
+    def _get_phoneme_list(self, language):
+        lang_dict_path = "data/phoneme_model/{}_dict.txt".format(language)
+        df = pd.read_csv(lang_dict_path, sep=' ', header=None)
+        chars = df[0].tolist()
+        two2three = {
+            'hi': 'hin',
+            'en': 'eng',
+            'te': 'tel',
+            'ta': 'tam',
+            'be': 'ben',
+            'gu': 'guj',
+            'kn': 'kan',
+        }
+        print(chars)
+        try:
+            trn = Transliterator(source=two2three[language], target='eng', build_lookup=True)
+            chars = list(map(lambda x: trn.transform(x), chars))
+        except:
+            pass
+        return chars
+    
+    def phoneme_visualise(self, lang_1, lang_2, output_folder,
+                            plot=True):
+        logger.info("Generating phoneme matrix..")
+        Path(output_folder).mkdir(parents=True, exist_ok=True)
+        model_1 = self._load_phoneme_prob_matrix(lang_1)
+        model_2 = self._load_phoneme_prob_matrix(lang_2)
+        lang_1_list = self._get_phoneme_list(lang_1)
+        lang_2_list = self._get_phoneme_list(lang_2)
+        print(model_1.shape, model_2.shape)
+        affinity_matrix = np.zeros((len(model_1), len(model_2)))
+        for i, phoneme_1 in enumerate(model_1):
+            for j, phoneme_2 in enumerate(model_2):
+                dist = distance.jensenshannon(phoneme_1, phoneme_2)
+                # dist = wasserstein_distance(phoneme_1, phoneme_2)
+                if np.isnan(dist):
+                    dist = 1
+                assert dist >= 0 and dist <= 1, dist
+                affinity_matrix[i][j] = (1-dist)
+        # print(affinity_matrix)
+        # make row-stochastic matrix
+        affinity_matrix = (affinity_matrix.T / affinity_matrix.sum(axis=1)).T
+        output_destination = os.path.join(output_folder,
+                    "phoneme_matrix_{}_{}_10h.png".format(lang_1, lang_2))
+        if plot:
+            self._plot_affinity_matrix(affinity_matrix, output_destination,
+                                        lang_2_list, lang_1_list, lang_2, lang_1)
+            logger.info('Saved output in {}'.format(output_destination))
+        return affinity_matrix
+
 
     def _prepare_dataset(self, dataset_path):
 
@@ -183,6 +269,7 @@ if __name__ == '__main__':
                         choices=['TSNE', 'PCA'])
     parser.add_argument('--use_temp', action='store_true')
     parser.add_argument('--no_plot', action='store_false')
+
     args = parser.parse_args()
     
     visualizer = CodebookFrequenciesVisualizer(args.dataset_path,
@@ -199,5 +286,11 @@ if __name__ == '__main__':
                 args.output_path,
                 dim_reduce=args.dim_reduce,
                 num_clusters=args.clusters)
+    visualizer.phoneme_visualise(
+        "ta",
+        "be",
+        args.output_path,
+        )
+
     # visualizer.get_language_codebook_usage(args.output_path)
 
