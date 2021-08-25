@@ -7,12 +7,13 @@ from loguru import logger
 class Wav2VecInferenceModule:
 
     def __init__(self, checkpoint_path: str, arch_type: str ='large',
-                    gpu_device: str = 'cuda'):
+                    gpu_device: str = 'cuda', pretrained=True):
         
         self.device = gpu_device
-        self.model = self._load_model(checkpoint_path, arch_type)
+        self.model = self._load_model(checkpoint_path, arch_type, pretrained)
         
-    def _load_model(self, checkpoint_path: str, arch_type: str ='large'):
+    def _load_model(self, checkpoint_path: str, arch_type: str ='large',
+                        pretrained=True):
         # Argument Valdation
         assert arch_type in ['large', 'small'], \
             "Architecture type can only be 'small' or 'large'."
@@ -48,7 +49,8 @@ class Wav2VecInferenceModule:
         # Load the model in GPU
         logger.info("Loading model..")
         model = Wav2Vec2Model.build_model(conf, task=None)
-        model.load_state_dict(ckpt['model'])
+        if pretrained:
+            model.load_state_dict(ckpt['model'])
         model.to(device=self.device)
         model.eval()
         logger.info("Model loaded")
