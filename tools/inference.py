@@ -1,8 +1,18 @@
+from typing import Dict, Iterable, Callable
+
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from fairseq.models.wav2vec import Wav2Vec2Model, Wav2Vec2Config
 from loguru import logger
+
+
+
+def module_hook(module: nn.Module, input: torch.Tensor, output: torch.Tensor):
+        logger.debug("Module hook running..")
+        print(input[0].shape, output[0].shape, output[1].shape)
+        logger.debug("Completed model hook")
 
 class Wav2VecInferenceModule:
 
@@ -11,6 +21,12 @@ class Wav2VecInferenceModule:
         
         self.device = gpu_device
         self.model = self._load_model(checkpoint_path, arch_type, pretrained)
+    
+    def save_outputs_hook(self, layer_id: str) -> Callable:
+        def fn(_, __, output):
+            squeezed = output[0].squeeze()
+            self._features[layer_id] = squeezed
+        return fn
         
     def _load_model(self, checkpoint_path: str, arch_type: str ='large',
                         pretrained=True):
@@ -73,6 +89,19 @@ class Wav2VecInferenceModule:
             z = self.model.quantize(out)
         codebook_seq = (z[1][0,:,0]*320 + z[1][0,:,1]).cpu().numpy()
         return codebook_seq
+    
+    def get_transformer_outputs(self, wav: np.ndarray):
+        for layer_id in range(12):
+            self.model.encoder.layers[layer_id].register_forward_hook(self.save_outputs_hook(layer_id))
+        self._features = {}
+        
+        feats = torch.from_numpy(wav).float()
+        out = self._postprocess(feats).unsqueeze(0)    
+        out = out.to(device=self.device)
+        with torch.no_grad():
+            c = self.model(out)
+        transformer_outs = list(self._features.values())
+        return transformer_outs
 
 
 if __name__ == '__main__':
@@ -82,9 +111,15 @@ if __name__ == '__main__':
     random_wav = np.random.rand(320*100)
     logger.debug("Running test 1..")
     codebook_seq = model.get_codebook_sequence(random_wav)
+    transformer_outs = model.get_transformer_outputs(random_wav)
     assert codebook_seq.shape[0] == 99, "Codebook sequence shape did not match"
+    assert transformer_outs[0].shape == (99, 768), "Transformer output shape did not match"
+    assert len(transformer_outs) == 12, "Number of transformer layers did not match"
     logger.debug("Running test 2..")
     random_wav = np.random.rand(320*100+80)
     codebook_seq = model.get_codebook_sequence(random_wav)
+    transformer_outs = model.get_transformer_outputs(random_wav)
     assert codebook_seq.shape[0] == 100, "Codebook sequence shape did not match"
+    assert transformer_outs[0].shape == (100, 768), "Transformer output shape did not match"
+    assert len(transformer_outs) == 12, "Number of transformer layers did not match"
     logger.debug("Successfully completed Debug tests")

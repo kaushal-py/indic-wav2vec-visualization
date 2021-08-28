@@ -178,7 +178,8 @@ class CodebookFrequenciesVisualizer:
         frequencies = frequencies / frequencies.max(axis=0)
 
         ### Sorting by hindi
-        sorted_indices = np.argsort(-frequencies[20])
+        sorted_indices = np.argsort(-frequencies[4])
+        # sorted_indices = np.argsort(-frequencies[20])
         ### Sorting by 1d projection
         # codebook_vectors_1d = np.squeeze(codebook_vectors_1d)
         # print(codebook_vectors_1d)
@@ -194,9 +195,13 @@ class CodebookFrequenciesVisualizer:
         # hi_freqs[hi_freqs > 0.66] = 1
         # hi_freqs[(hi_freqs > 0.33) & (hi_freqs <= 0.66)] = 0.5
 
-        frequencies[frequencies <= 0.33] = 0
-        frequencies[frequencies > 0.66] = 1
-        frequencies[(frequencies > 0.33) & (frequencies <= 0.66)] = 0.5
+        frequencies[frequencies <= 0.2] = 0
+        frequencies[(frequencies > 0.2) & (frequencies <= 0.4)] = 0.2
+        frequencies[(frequencies > 0.4) & (frequencies <= 0.6)] = 0.4
+        frequencies[(frequencies > 0.6) & (frequencies <= 0.8)] = 0.6
+        # frequencies[(frequencies > 0.8) & (frequencies <= 0.4)] = 0.2
+        frequencies[frequencies > 0.8] = 0.8
+        # frequencies[(frequencies > 0.33) & (frequencies <= 0.66)] = 0.5
 
         import matplotlib
         matplotlib.rc('ytick', labelsize=40)
@@ -216,7 +221,7 @@ class CodebookFrequenciesVisualizer:
         # )
 
         # output_destination = os.path.join(output_folder, "parallelplot_hin_sorted_grouped.png")
-        output_destination = os.path.join(output_folder, "language_codebook_matrix_grouped_ta_sorted.png")
+        output_destination = os.path.join(output_folder, "language_codebook_matrix_grouped_en_sorted_5.png")
         plt.show()
         plt.savefig(output_destination)
     
@@ -486,8 +491,8 @@ if __name__ == '__main__':
     
     visualizer = CodebookFrequenciesVisualizer(args.dataset_path,
             args.checkpoint_path, args.arch_type, args.use_temp)
-    # language_dist = visualizer.get_language_distribution(args.use_temp)
-    # visualizer.plot_codebook_frequencies(args.output_path, language_dist)
+    language_dist = visualizer.get_language_distribution(args.use_temp)
+    visualizer.plot_codebook_frequencies(args.output_path, language_dist)
     # visualizer.plot_weighted_tsne(args.output_path, language_dist)
     # affinity_matrix, _ = visualizer.get_affinity_matrix(
     #             args.output_path,
@@ -500,11 +505,11 @@ if __name__ == '__main__':
     #             args.output_path,
     #             dim_reduce=args.dim_reduce,
     #             num_clusters=args.clusters)
-    visualizer.phoneme_visualise(
-        "te",
-        "kn",
-        args.output_path,
-        )
+    # visualizer.phoneme_visualise(
+    #     "te",
+    #     "kn",
+    #     args.output_path,
+    #     )
     # visualizer.phoneme_tsne_visualise(
     #     "te",
     #     "kn",
