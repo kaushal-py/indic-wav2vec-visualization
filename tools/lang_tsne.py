@@ -6,24 +6,14 @@ from __future__ import unicode_literals
 import os
 from collections import Counter
 from pathlib import Path
-from joblib import dump, load
 
 import numpy as np
-import pandas as pd
-from scipy.spatial import distance
-from scipy.stats import wasserstein_distance
 import soundfile as sf
 from loguru import logger
 import argparse
 from tqdm import tqdm
-import matplotlib as mpl
 import matplotlib.pyplot as plt
-import plotly; logger.info("Plotly version: {}".format(plotly.__version__))
-import plotly.express as px
-from sklearn.cluster import SpectralClustering
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE, SpectralEmbedding
-from indictrans import Transliterator
+from sklearn.manifold import TSNE
 
 import inference
 
@@ -43,8 +33,8 @@ class CodebookFrequenciesVisualizer:
     def get_lang_tsne(self, use_temp=False):
         
         if use_temp:
-            Path('/tmp/indic_wav2vec/').mkdir(parents=True, exist_ok=True)
-            temp_file = '/tmp/indic_wav2vec/all_lang_vectors_base.npy'
+            # Avoid recalculating tsne vectors
+            temp_file = 'outputs/all_lang_vectors_large.npy'
             all_lang_vectors = np.load(temp_file, allow_pickle=True)
             logger.info('Loaded precomputed distribution from {}.'.format(
                             temp_file))
@@ -79,8 +69,8 @@ class CodebookFrequenciesVisualizer:
             all_lang_vectors = np.array(all_lang_vectors)
             print(all_lang_vectors.shape)
             
-            Path('/tmp/indic_wav2vec/').mkdir(parents=True, exist_ok=True)
-            temp_file = '/tmp/indic_wav2vec/all_lang_vectors_base.npy'
+            Path('outputs/').mkdir(parents=True, exist_ok=True)
+            temp_file = 'outputs/all_lang_vectors_large.npy'
             np.save(temp_file, all_lang_vectors)
             return all_lang_vectors
 
@@ -102,7 +92,7 @@ class CodebookFrequenciesVisualizer:
 
         language_names = list(self.dataset.keys())
         Path(output_folder).mkdir(parents=True, exist_ok=True)
-        for layer in range(12):
+        for layer in range(5,6):
             full_vectors = all_lang_vectors[:,layer,:]
             dimension_reducer = TSNE(n_components=2, verbose=1, random_state=42, n_jobs=-1, perplexity=3)
             # dimension_reducer = PCA(n_components=2, random_state=42)
@@ -110,53 +100,34 @@ class CodebookFrequenciesVisualizer:
 
             output_destination = os.path.join(output_folder, "tsne_tlayer_{}.png".format(layer))
 
-            fig, ax = plt.subplots()
-            fig.figsize = (50, 50)
+            lang_fams = []
+            for language in language_names:
+                if language in ['tamil', 'malayalam', 'telugu', 'kannada']:
+                    lang_fams.append(1)
+                elif language in ['indian_english']:
+                    lang_fams.append(2)
+                elif language in ['santali']:
+                    lang_fams.append(3)
+                else:
+                    lang_fams.append(0)
+            lang_fams = np.array(lang_fams)
+            # print(lang_fams)
+            # print(lang_fams == 0)
+
+            fig = plt.figure(figsize=(8, 5))
+            ax = fig.add_subplot(111)
             ax.scatter(vectors_2d[:,0], vectors_2d[:,1])
+            # ax.scatter(vectors_2d[(lang_fams==0),0], vectors_2d[(lang_fams==0),1], label='Indo-Aryan')
+            # ax.scatter(vectors_2d[(lang_fams==1),0], vectors_2d[(lang_fams==1),1], label='Dravidian')
+            # ax.scatter(vectors_2d[(lang_fams==2),0], vectors_2d[(lang_fams==2),1], label='Indian English')
+            # ax.scatter(vectors_2d[(lang_fams==3),0], vectors_2d[(lang_fams==3),1], label=' Austro-Asiatic')
             for i, txt in enumerate(language_names):
-                ax.annotate(txt, (vectors_2d[i,0], vectors_2d[i,1]))
-            fig.tight_layout()
+                ax.annotate(txt.replace('_', ' ').title(), (vectors_2d[i,0]+5, vectors_2d[i,1]+5))
+            plt.tight_layout()
+            # plt.legend()
             plt.show()
-            plt.savefig(output_destination)
+            plt.savefig(output_destination, dpi=300)
 
-
-    def language_to_family(self, language_list: list):
-
-        family_ids = {
-            'indo_aryan': 0,
-            'dravidian':1,
-            'others':2,
-        }
-        language_family = {
-            'assamese': 'indo_aryan',
-            'bengali': 'indo_aryan',
-            'gujarati': 'indo_aryan',
-            'hindi': 'indo_aryan',
-            'konkani': 'indo_aryan',
-            'bodo': 'indo_aryan',
-            'dogri': 'indo_aryan',
-            'kashmiri': 'indo_aryan',
-            'maithili': 'indo_aryan',
-            'manipuri': 'indo_aryan',
-            'marathi': 'indo_aryan',
-            'nepali': 'indo_aryan',
-            'odia': 'indo_aryan',
-            'punjabi': 'indo_aryan',
-            'sanskrit': 'indo_aryan',
-            'sindhi': 'indo_aryan',
-            'urdu': 'indo_aryan',
-            'kannada': 'dravidian',
-            'malayalam': 'dravidian',
-            'tamil': 'dravidian',
-            'telugu': 'dravidian',
-            'english': 'others',
-            'santali': 'others',
-        }
-        family_list = []
-        for language in language_list:
-            fam_id = family_ids[language_family[language]]
-            family_list.append(fam_id)
-        return family_list
 
 if __name__ == '__main__':
 
@@ -165,9 +136,8 @@ if __name__ == '__main__':
     parser.add_argument('checkpoint_path', type=str)
     parser.add_argument('output_path', type=str)
     parser.add_argument('--arch_type', type=str, default='large',
-                        choices=['large', 'small'])
+                        choices=['large', 'base'])
     parser.add_argument('--use_temp', action='store_true')
-    parser.add_argument('--no_plot', action='store_false')
 
     args = parser.parse_args()
     

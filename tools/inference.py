@@ -8,7 +8,6 @@ from fairseq.models.wav2vec import Wav2Vec2Model, Wav2Vec2Config
 from loguru import logger
 
 
-
 def module_hook(module: nn.Module, input: torch.Tensor, output: torch.Tensor):
         logger.debug("Module hook running..")
         print(input[0].shape, output[0].shape, output[1].shape)
@@ -21,6 +20,7 @@ class Wav2VecInferenceModule:
         
         self.device = gpu_device
         self.model = self._load_model(checkpoint_path, arch_type, pretrained)
+        self.arch_type = arch_type
     
     def save_outputs_hook(self, layer_id: str) -> Callable:
         def fn(_, __, output):
@@ -31,8 +31,8 @@ class Wav2VecInferenceModule:
     def _load_model(self, checkpoint_path: str, arch_type: str ='large',
                         pretrained=True):
         # Argument Valdation
-        assert arch_type in ['large', 'small'], \
-            "Architecture type can only be 'small' or 'large'."
+        assert arch_type in ['large', 'base'], \
+            "Architecture type can only be 'base' or 'large'."
         # Load pytorch checkpoint
         ckpt = torch.load(checkpoint_path)
         # Set configuration based on architecture
@@ -53,7 +53,7 @@ class Wav2VecInferenceModule:
                 encoder_ffn_embed_dim=4096,
                 encoder_attention_heads=16,
                 feature_grad_mult= 1.0)
-        elif arch_type == 'small':
+        elif arch_type == 'base':
             conf = Wav2Vec2Config(
                 quantize_targets = True,
                 final_dim= 256,
@@ -91,7 +91,11 @@ class Wav2VecInferenceModule:
         return codebook_seq
     
     def get_transformer_outputs(self, wav: np.ndarray):
-        for layer_id in range(12):
+        if self.arch_type == 'large':
+            num_layers = 24
+        elif self.arch_type == 'base':
+            num_layers = 12
+        for layer_id in range(num_layers):
             self.model.encoder.layers[layer_id].register_forward_hook(self.save_outputs_hook(layer_id))
         self._features = {}
         
