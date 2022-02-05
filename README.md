@@ -78,7 +78,8 @@ CUDA_VISIBLE_DEVICES=0 python python tools/codebook_frequencies.py \
 
 ## Plot Attention Heads
 
-Change the audio paths in `examples/example_outputs.txt` file. To see a working example, run - `viz_attention.ipynb`
+1. Change the audio paths in `examples/example_outputs.txt` file.
+2. Run the notebook - `viz_attention.ipynb`
 
 ###  Running on custom data
 
